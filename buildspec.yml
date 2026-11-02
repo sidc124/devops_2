@@ -1,0 +1,31 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - python -m pip install -r requirements-dev.txt
+  pre_build:
+    on-failure: ABORT
+    commands:
+      - python -m flake8 app.py test_app.py
+      - python -m pytest -v test_app.py
+      - ': "${ECR_URI:?Set ECR_URI to your ECR repository URI}"'
+      - 'ECR_REGISTRY="${ECR_URI%%/*}"'
+      - 'IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:?Source commit is required}"'
+      - set -o pipefail
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+  build:
+    on-failure: ABORT
+    commands:
+      - docker build -t "$ECR_URI:$IMAGE_TAG" .
+      - docker tag "$ECR_URI:$IMAGE_TAG" "$ECR_URI:latest"
+  post_build:
+    commands:
+      - test "$CODEBUILD_BUILD_SUCCEEDING" = "1"
+      - docker push "$ECR_URI:$IMAGE_TAG"
+      - docker push "$ECR_URI:latest"
